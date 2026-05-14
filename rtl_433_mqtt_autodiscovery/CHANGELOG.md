@@ -1,5 +1,7 @@
-## [UNRELEASED] - YYYY-MM-DD
+## [0.10.0] - 2026-05-14
 
+* Drop support for architectures Home Assistant has dropped
+* Update the stable addon to rtl_433 25.12
 * Drop support for architectures Home Assistant has dropped
 
 ## [0.9.0] - 2025-03-22
