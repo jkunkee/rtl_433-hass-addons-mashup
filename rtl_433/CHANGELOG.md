@@ -1,4 +1,4 @@
-## [UNRELEASED] - YYYY-MM-DD
+## [0.7.0] - 2026-05-14
 
 * Fix unbounded $1 in HEREDOC #230
 * Drop support for architectures Home Assistant has dropped
