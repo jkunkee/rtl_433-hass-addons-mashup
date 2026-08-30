@@ -1,4 +1,4 @@
-name: rtl_433
+name: rtl_433_stuartparmenter
 version: "0.1.0"
 slug: rtl433
 description: "Receive wireless sensor data via an SDR dongle and rtl_433"
