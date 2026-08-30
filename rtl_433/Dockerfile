@@ -1,67 +1,81 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:bookworm
 FROM $BUILD_FROM as builder
-MAINTAINER pbkhrv@pm.me
+
+LABEL maintainer="pavlov@pavlov.net"
 
 ENV LANG C.UTF-8
 
-# Copied with minor edits from https://github.com/hertzg/rtl_433_docker/blob/master/images/alpine/build-context/Dockerfile
-RUN apk add --no-cache --virtual .buildDeps \
-    build-base \
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
     libusb-dev \
-    hackrf \
-    hackrf-dev \
-    librtlsdr-dev \
-    soapy-sdr \
-    soapy-sdr-dev \
-    openssl-dev \
+    libusb-1.0-0-dev \
+    libssl-dev \
     cmake \
-    git
+    git && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
+# --- Stage: Build librtlsdr ---
+FROM builder as librtlsdr_builder
+
+ARG librtlsdrGitRevision=cd36c28815592af4080d71181964909125a74f44 # v0.9.0
+
+WORKDIR /build
+RUN git clone https://github.com/librtlsdr/librtlsdr
+WORKDIR /build/librtlsdr
+
+RUN git checkout ${librtlsdrGitRevision}
+
+# Build and install to staging root
+RUN mkdir build && cd build && \
+    cmake .. && \
+    make -j4 && \
+    make DESTDIR=/build/root/ install
+
+# --- Stage: Build rtl_433 ---
 FROM builder as rtl_433_builder
 
+# Copy librtlsdr output to be available during rtl_433 build
+COPY --from=librtlsdr_builder /build/root/usr/local /usr/local
+
+WORKDIR /build
 RUN git clone https://github.com/merbanan/rtl_433
-WORKDIR ./rtl_433
+WORKDIR /build/rtl_433
 
-# Build a specific commit or tag.
-ARG rtl433GitRevision=25.12
+ARG rtl433GitRevision=ea7d504877df751a202432d47dbb0c425ab0a93c # 25.12
 RUN git checkout ${rtl433GitRevision}
-WORKDIR ./build
-RUN cmake ..
-RUN make -j 4
 
-WORKDIR /build/root
-WORKDIR /build/rtl_433/build
-RUN make DESTDIR=/build/root/ install
+# Build and install to staging root
+RUN mkdir build && cd build && \
+    cmake .. && \
+    make -j4 && \
+    make DESTDIR=/build/root/ install
 
-FROM builder as soapy_hackrf_builder
-RUN git clone https://github.com/pothosware/SoapyHackRF.git
-WORKDIR SoapyHackRF
-RUN git checkout 6c0c33f0aa44c3080674e6bca0273184d3e9eb44
-WORKDIR build
-RUN cmake ..
-RUN make -j4
-RUN make install
-
+# --- Stage: Final image ---
 FROM $BUILD_FROM
 
 ENV LANG C.UTF-8
 
-RUN apk add --no-cache libusb \
-    hackrf \
-    librtlsdr \
-    soapy-sdr \
-    sed
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libusb-1.0-0 \
+    sed \
+    gettext-base && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /root
+
+# Copy installed binaries and libraries from both build stages
+COPY --from=librtlsdr_builder /build/root/ /
 COPY --from=rtl_433_builder /build/root/ /
 
-COPY --from=soapy_hackrf_builder /usr/lib /lib-s
-RUN mkdir -p /usr/local/lib/SoapySDR/modules0.8/
-COPY --from=soapy_hackrf_builder /usr/local/lib/SoapySDR/modules0.8/libHackRFSupport.so /usr/local/lib/SoapySDR/modules0.8/
+# Ensure librtlsdr is available
+RUN ldconfig
 
-# Run script
+# Include run script and default config template
 COPY run.sh /
-RUN chmod a+x /run.sh
+COPY rtl_433.conf.template /
+RUN chmod +x /run.sh
 
-CMD [ "/run.sh" ]
+CMD ["/run.sh"]
